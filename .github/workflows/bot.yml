@@ -14,14 +14,8 @@ jobs:
       - run: pip install requests
       - name: Restore
         run: |
-          # احذف الملف الفاسد لو موجود
-          if [ -f trade.json ]; then
-            if! grep -q '"entry"' trade.json; then
-              rm trade.json
-              echo "Deleted invalid trade.json"
-            fi
-          fi
-          [ -f trade.json ] || echo '{}' > trade.json
+          rm -f trade.json
+          echo '{}' > trade.json
           [ -f last_weak.json ] || echo '{"time":0}' > last_weak.json
       - run: python yalla_gold_bot.py
       - name: Save
