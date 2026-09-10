@@ -1,23 +1,25 @@
-import requests, datetime
+import requests
+from datetime import datetime
 
 BOT_TOKEN = "8715298565:AAF-UKEgYjry5rifPIkJ6b5r2rRYRDYHwoM"
-CHANNEL = "@YallaGold"
+CHANNEL = "-1003997576330"  # YallaGold Private ID ✅
 
-def get_price():
+def get_gold():
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
-        return float(r['price'])
+        return float(r.get("price", 4395.70))
     except:
-        return 4385.0
+        return 4395.70
 
-price = get_price()
-now = datetime.datetime.now().strftime("%H:%M")
-msg = f"YallaGold 🏆\n💰 الذهب: ${price:.2f}\n⏰ {now}\n📊 تحليل: انتظار - سوق متذبذب\n\n#XAUUSD #ذهب"
+price = get_gold()
+time = datetime.now().strftime("%H:%M")
+
+msg = f"""🏆 YallaGold ICT Analysis
+💰 XAUUSD: ${price:.2f}
+⏰ {time}
+📊 انتظار - لا تدخل الان
+🔗 t.me/+0RhWuGnsfHo3MTNk"""
 
 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 res = requests.post(url, data={"chat_id": CHANNEL, "text": msg})
-print(f"SEND TO {CHANNEL} -> {res.text}")
-
-# اذا فشل نطبع الخطأ باش نشوفوه في Actions
-if not res.ok:
-    print("FAILED! Check if bot is admin in @YallaGold and channel @ is correct")
+print(f"RESULT: {res.text}")
