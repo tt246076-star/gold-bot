@@ -1,26 +1,87 @@
-# V18 - OB حقيقي + Gold Price API + حماية API
+# V19 - TradingView OANDA:XAUUSD مباشرة - ما يطيحش
 import requests, json, os, time
 from datetime import datetime
 
 BOT_TOKEN = "8715298565:AAF-UKEgYjry5rifPIkJ6b5r2rRYRDYHwoM"
 CHANNEL = "-1003997576330"
 
-def get_gold_price():
+def get_tv_price():
     try:
-        r=requests.get("https://api.gold-api.com/price/XAU",timeout=10).json()
-        return float(r['price'])
-    except:
+        url = "https://scanner.tradingview.com/forex/scan"
+        payload = {"symbols":{"tickers":["OANDA:XAUUSD"],"query":{"types":[]}},"columns":["close"]}
+        r = requests.post(url, json=payload, timeout=10).json()
+        price = float(r['data'][0]['d'][0])
+        if 1000 < price < 10000:
+            print(f"TV price OANDA:XAUUSD = {price}")
+            return price
+    except Exception as e:
+        print(f"TV scanner fail: {e}")
+    return None
+
+def get_tv_candles(interval_tv, limit=100):
+    try:
+        resolution = {"5m":"5","15m":"15","1h":"60","4h":"240"}.get(interval_tv, "5")
+        to_ts = int(time.time())
+        mins = {"5m":5,"15m":15,"1h":60,"4h":240}[interval_tv]
+        from_ts = to_ts - (limit * mins * 60) - 3600
+        endpoints = [
+            f"https://api.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}",
+            f"https://api.new.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}",
+            f"https://price.tradingview.com/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}"
+        ]
+        for url in endpoints:
+            try:
+                r = requests.get(url, timeout=10).json()
+                if r.get('s') == 'ok' and 'c' in r and len(r['c']) > 10:
+                    candles = []
+                    for i in range(len(r['c'])):
+                        candles.append({
+                            "o": float(r['o'][i]),
+                            "h": float(r['h'][i]),
+                            "l": float(r['l'][i]),
+                            "c": float(r['c'][i]),
+                            "v": float(r['v'][i]) if 'v' in r else 100
+                        })
+                    return candles[-limit:]
+            except: continue
+    except: pass
+    return None
+
+def get_binance_candles(interval, limit=100):
+    bases = ["https://api.binance.com", "https://data-api.binance.vision", "https://api1.binance.com"]
+    for base in bases:
         try:
-            url="https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
-            return float(requests.get(url,timeout=10).json()['price'])
-        except:
-            return None
+            url = f"{base}/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}"
+            data = requests.get(url, timeout=10).json()
+            if isinstance(data, list) and len(data) > 10:
+                return [{"o":float(c[1]),"h":float(c[2]),"l":float(c[3]),"c":float(c[4]),"v":float(c[5])} for c in data]
+        except: continue
+    return None
+
+def get_gold_price():
+    p = get_tv_price()
+    if p: return p
+    try:
+        r = requests.get("https://api.gold-api.com/price/XAU", timeout=8).json()
+        p = float(r.get('price',0))
+        if 1000 < p < 10000: return p
+    except: pass
+    try:
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd", timeout=8).json()
+        p = float(r['pax-gold']['usd'])
+        if 1000 < p < 10000: return p
+    except: pass
+    for base in ["https://api.binance.com", "https://data-api.binance.vision"]:
+        try:
+            p = float(requests.get(f"{base}/api/v3/ticker/price?symbol=PAXGUSDT", timeout=8).json()['price'])
+            if 1000 < p < 10000: return p
+        except: pass
+    return None
 
 def get_candles(interval, limit=100):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}"
-        return [{"o":float(c[1]),"h":float(c[2]),"l":float(c[3]),"c":float(c[4]),"v":float(c[5])} for c in requests.get(url,timeout=10).json()]
-    except: return None
+    c = get_tv_candles(interval, limit)
+    if c: return c
+    return get_binance_candles(interval, limit)
 
 def rsi(candles, p=14):
     closes=[c['c'] for c in candles]; g,l=[],[]
@@ -73,25 +134,18 @@ def send_tg(text):
     except: pass
 
 try:
-    gold_price=get_gold_price()
     c5=get_candles("5m",100); c15=get_candles("15m",100); c1h=get_candles("1h",100); c4h=get_candles("4h",100)
-
-    if not gold_price or not c5:
-        send_tg(f"⚠️ خطأ API - Gold Price أو Binance ما يرد | {datetime.now().strftime('%I:%M %p')}")
-        raise Exception("API fail")
-
-    price=gold_price
-    now=datetime.now()
-    trade=load("trade.json")
-    last_weak=load("last_weak.json") or {"time":0}
-
+    if not c5: raise Exception("كل المصادر طاحت - TV و Binance")
+    gold_price=get_gold_price()
+    if not gold_price: gold_price = c5[-1]['c']
+    price=gold_price; now=datetime.now()
+    trade=load("trade.json"); last_weak=load("last_weak.json") or {"time":0}
     rsi5=rsi(c5,14); ema200_4h=ema(c4h,200); atr5=atr(c5,14)
     fvg_bull = c5[-2]['l'] > c5[-4]['h']; fvg_bear = c5[-2]['h'] < c5[-4]['l']
     last_h=max([c['h'] for c in c5[-11:-1]]); last_l=min([c['l'] for c in c5[-11:-1]])
     mss_bull=price>last_h; mss_bear=price<last_l
     liq_bull=c5[-1]['l']<last_l and c5[-1]['c']>last_l; liq_bear=c5[-1]['h']>last_h and c5[-1]['c']<last_h
     ob_bull, ob_bull_p, ob_bear, ob_bear_p = detect_ob_real(c5)
-
     buy_score=0; sell_score=0
     if price>ema200_4h: buy_score+=1
     if price<ema200_4h: sell_score+=1
@@ -105,43 +159,32 @@ try:
     if liq_bear: sell_score+=1
     if ob_bull: buy_score+=1
     if ob_bear: sell_score+=1
-
     if trade:
         entry,typ,sl,tp=trade['entry'],trade['type'],trade['sl'],trade['tp2']
-        diff=(price-entry) if typ=="BUY" else (entry-price)
-        pips=diff*10
+        diff=(price-entry) if typ=="BUY" else (entry-price); pips=diff*10
         if (typ=="BUY" and price<=sl) or (typ=="SELL" and price>=sl):
-            msg=f"❌ SL {typ} {pips:.1f} | {now.strftime('%I:%M %p')} | Gold {price:.1f}$"; os.remove("trade.json")
+            msg=f"❌ SL {typ} {pips:.1f} | {now.strftime('%I:%M %p')} | TV {price:.1f}$"; os.remove("trade.json")
         elif (typ=="BUY" and price>=tp) or (typ=="SELL" and price<=tp):
-            msg=f"🏆 TP {typ} +{pips:.1f} 🔥 | {now.strftime('%I:%M %p')} | Gold {price:.1f}$"; os.remove("trade.json")
+            msg=f"🏆 TP {typ} +{pips:.1f} 🔥 | {now.strftime('%I:%M %p')} | TV {price:.1f}$"; os.remove("trade.json")
         else:
-            msg=f"🔄 {typ} {pips:+.1f} | {now.strftime('%I:%M %p')} | Gold {price:.1f}$ | OB {ob_bull_p if typ=='BUY' else ob_bear_p}"
+            msg=f"🔄 {typ} {pips:+.1f} | {now.strftime('%I:%M %p')} | TV {price:.1f}$ | OB {ob_bull_p if typ=='BUY' else ob_bear_p}"
     else:
         if buy_score>=4:
             sl=round(price - atr5*1.2,2); tp=round(price + atr5*2.5,2); entry=round(price,2)
             save("trade.json",{"type":"BUY","entry":entry,"sl":sl,"tp2":tp}); save("last_weak.json",{"time":time.time()})
-            msg=f"""💎 Gold Price BUY قوي 88% | {price:.1f}$ حقيقي
-⏰ {now.strftime('%I:%M %p')} | XAU Gold API
-📊 RSI {rsi5:.0f} | Buy {buy_score}/6 | OB حقيقي {'نعم '+str(ob_bull_p)+'$' if ob_bull else 'لا'}
-🎯 دخول {entry}$ | SL {sl}$ | TP {tp}$"""
+            msg=f"💎 TV BUY قوي 88% | {price:.1f}$ TradingView\n⏰ {now.strftime('%I:%M %p')} | OANDA:XAUUSD مباشر\n📊 RSI {rsi5:.0f} | Buy {buy_score}/6 | OB {'نعم '+str(ob_bull_p)+'$' if ob_bull else 'لا'}\n🎯 دخول {entry}$ | SL {sl}$ | TP {tp}$"
         elif sell_score>=4:
             sl=round(price + atr5*1.2,2); tp=round(price - atr5*2.5,2); entry=round(price,2)
             save("trade.json",{"type":"SELL","entry":entry,"sl":sl,"tp2":tp}); save("last_weak.json",{"time":time.time()})
-            msg=f"""💎 Gold Price SELL قوي 88% | {price:.1f}$ حقيقي
-⏰ {now.strftime('%I:%M %p')} | XAU Gold API | OB {ob_bear_p}$"""
+            msg=f"💎 TV SELL قوي 88% | {price:.1f}$ TradingView\n⏰ {now.strftime('%I:%M %p')} | OANDA:XAUUSD | OB {ob_bear_p}$"
         else:
-            if time.time() - last_weak["time"] < 900:
-                print("SKIP weak"); exit()
+            if time.time() - last_weak["time"] < 900: print("SKIP weak"); exit()
             save("last_weak.json",{"time":time.time()})
-            msg=f"""⏳ تحليلي Gold {price:.1f}$ | {now.strftime('%I:%M %p')}
-RSI {rsi5:.0f} | Buy {buy_score}/6 Sell {sell_score}/6
-OB {'صاعد '+str(ob_bull_p)+'$' if ob_bull else 'هابط '+str(ob_bear_p)+'$' if ob_bear else 'لا يوجد'} | FVG {'نعم' if fvg_bull or fvg_bear else 'لا'}
-🧠 قراري: أنتظر OB حقيقي"""
-
+            msg=f"⏳ تحليلي TV {price:.1f}$ | {now.strftime('%I:%M %p')}\nRSI {rsi5:.0f} | Buy {buy_score}/6 Sell {sell_score}/6\nOB {'صاعد '+str(ob_bull_p)+'$' if ob_bull else 'هابط '+str(ob_bear_p)+'$' if ob_bear else 'لا يوجد'} | FVG {'نعم' if fvg_bull or fvg_bear else 'لا'}\n🧠 TradingView مباشر - أنتظر OB حقيقي"
     send_tg(msg); print(msg)
-
 except Exception as e:
-    err_msg=f"⚠️ خطأ V18: {str(e)[:100]} | {datetime.now().strftime('%I:%M %p')}"
+    err_msg=f"⚠️ خطأ V19 TV: {str(e)[:150]} | {datetime.now().strftime('%I:%M %p')}"
     print(err_msg)
-    try: send_tg(err_msg)
+    try:
+        if "كل المصادر" in str(e): send_tg(err_msg)
     except: pass
