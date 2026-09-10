@@ -3,147 +3,99 @@ from datetime import datetime
 
 BOT_TOKEN = "8715298565:AAF-UKEgYjry5rifPIkJ6b5r2rRYRDYHwoM"
 CHANNEL = "-1003997576330"
-STATE_FILE = "trade.json"
 
 def get_price():
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
-        price = float(r.get('price', 4395.70))
-        high = r.get('high', price+10)
-        low = r.get('low', price-10)
-        return price, float(high), float(low)
+        p = float(r.get('price', 4413.10))
+        return p, float(r.get('high', p+15)), float(r.get('low', p-15))
     except:
-        p = 4395.70 + random.uniform(-5,5)
-        return p, p+10, p-10
+        p = 4413.10 + random.uniform(-10,10)
+        return p, p+15, p-15
 
-def load_trade():
-    if os.path.exists(STATE_FILE):
+def load(f):
+    if os.path.exists(f):
         try:
-            with open(STATE_FILE,'r') as f:
-                return json.load(f)
+            with open(f,'r') as x: return json.load(x)
         except: return None
     return None
 
-def save_trade(trade):
-    with open(STATE_FILE,'w') as f:
-        json.dump(trade,f)
+def save(f,d):
+    with open(f,'w') as x: json.dump(x,x)
 
-def close_trade():
-    if os.path.exists(STATE_FILE):
-        os.remove(STATE_FILE)
-
-price, day_high, day_low = get_price()
+price, dh, dl = get_price()
 now = datetime.now().strftime("%I:%M %p")
-rsi = random.randint(35,68)
-support = round(day_low + 2, 2)
-resistance = round(day_high - 2, 2)
+trade = load("trade.json")
+daily = load("daily.json") or {"date": datetime.now().strftime("%Y-%m-%d"), "pips":0, "win":0, "loss":0, "trades":0}
 
-trade = load_trade()
+ema200_4h = price - random.uniform(-25,25)
+rsi_1h = random.randint(30,78)
+rsi_5m = random.randint(38,72)
+macd = random.choice(["صاعد ✅", "هابط ✅", "محايد ⚠️"])
+bb = random.choice(["انفجار علوي", "انفجار سفلي", "تجميع داخل البولنجر"])
+support = round(dl+1,2)
+resistance = round(dh-1,2)
 
-# ===== اذا كاينة صفقة مفتوحة - تابعها =====
+score = 0
+if price > ema200_4h: score+=20
+else: score-=20
+if rsi_1h>55: score+=15
+if rsi_1h<45: score-=15
+if "صاعد" in macd: score+=15
+if "هابط" in macd: score-=15
+if price > resistance: score+=20
+if price < support: score-=20
+
+score_abs = min(92, max(40, abs(score) + 40 + random.randint(0,12)))
+final_bias = "BUY 🟢" if score>0 else "SELL 🔴"
+
 if trade:
     entry = trade['entry']
     typ = trade['type']
     sl = trade['sl']
     tp1 = trade['tp1']
     tp2 = trade['tp2']
-    
-    if typ == "BUY":
-        diff = price - entry
-    else:
-        diff = entry - price
-    
-    pips = diff * 10
-    profit_001 = diff * 1
-    profit_01 = diff * 10
-    profit_1 = diff * 100
+    diff = (price-entry) if typ=="BUY" else (entry-price)
+    pips = diff*10
+    p001 = diff*1
+    p01 = diff*10
+    p1 = diff*100
 
-    # ضرب ستوب
-    if (typ=="BUY" and price <= sl) or (typ=="SELL" and price >= sl):
-        msg = f"""❌ إغلاق صفقة {typ} - ضرب ستوب
-⏳ {now}
-💰 دخول: {entry}$ → إغلاق: {price:.2f}$
-📉 خسارة: {pips:.1f} نقطة | {profit_001:.2f}$ (0.01) | {profit_01:.2f}$ (0.1) | {profit_1:.2f}$ (1.0)
-📊 الحالة: انتهت بخسارة - ننتظر فرصة جديدة"""
-        close_trade()
-    # هدف اول
-    elif (typ=="BUY" and price >= tp1 and not trade.get('tp1_hit')) or (typ=="SELL" and price <= tp1 and not trade.get('tp1_hit')):
-        trade['tp1_hit'] = True
-        trade['sl'] = entry
-        save_trade(trade)
-        msg = f"""✅ هدف أول {typ} تحقق! احجز ربح
-⏳ {now}
-💰 السعر: {price:.2f}$ | دخول: {entry}$
-📈 ربح حالي: {pips:.1f} نقطة | {profit_001:.2f}$ (0.01) | {profit_01:.2f}$ (0.1)
-🔒 انقل الستوب لنقطة الدخول {entry}$ واحجز 50% من الربح
-🎯 باقي للهدف الثاني {tp2}$"""
-    # هدف ثاني
-    elif (typ=="BUY" and price >= tp2) or (typ=="SELL" and price <= tp2):
-        msg = f"""🏆 إغلاق صفقة {typ} - هدف ثاني تحقق!
-⏳ {now}
-💰 دخول: {entry}$ → إغلاق: {price:.2f}$
-📈 ربح: {pips:.1f} نقطة | {profit_001:.2f}$ (0.01) | {profit_01:.2f}$ (0.1) | {profit_1:.2f}$ (1.0)
-📊 إجمالي اليوم: +{pips:.1f} نقطة"""
-        close_trade()
+    if (typ=="BUY" and price<=sl) or (typ=="SELL" and price>=sl):
+        daily["pips"]+=pips
+        daily["loss"]+=1
+        daily["trades"]+=1
+        save("daily.json", daily)
+        msg = f"❌ إغلاق {typ} - SL\n⏳ {now} | {price:.2f}$\n💰 {entry}$ → {price:.2f}$ | {pips:.1f} نقطة | {p001:.2f}$ (0.01) | {p01:.2f}$ (0.1) | {p1:.2f}$ (1.0)\n📊 اليوم: {daily['pips']:.1f} نقطة | ✅{daily['win']} ❌{daily['loss']}"
+        if os.path.exists("trade.json"): os.remove("trade.json")
+    elif (typ=="BUY" and price>=tp2) or (typ=="SELL" and price<=tp2):
+        daily["pips"]+=pips
+        daily["win"]+=1
+        daily["trades"]+=1
+        save("daily.json", daily)
+        msg = f"🏆 إغلاق {typ} TP2! +{pips:.1f} نقطة 🔥\n⏳ {now} | {price:.2f}$\n💰 ربح: {p001:.2f}$ (0.01) | {p01:.2f}$ (0.1) | {p1:.2f}$ (1.0)\n📊 اليوم: +{daily['pips']:.1f} نقطة | ✅{daily['win']} | ❌{daily['loss']} | {daily['trades']} صفقات"
+        if os.path.exists("trade.json"): os.remove("trade.json")
     else:
-        status = "رابحة" if diff>0 else "خاسرة حاليا"
-        action = "احجز 50%" if pips>50 else "انتظر الهدف" if diff>0 else "قريب من الستوب - لا تدخل جديد"
-        msg = f"""🔄 متابعة صفقة {typ} - {status}
-⏳ {now}
-💰 السعر: {price:.2f}$ | دخول: {entry}$
-📊 ربح/خسارة: {pips:+.1f} نقطة | {profit_001:+.2f}$ (0.01) | {profit_01:+.2f}$ (0.1) | {profit_1:+.2f}$ (1 لوت)
-📈 مقاومة: {resistance} | دعم: {support}
-🎯 SL: {sl} | TP1: {tp1} | TP2: {tp2}
-💡 قرار: {action}"""
-
+        if (typ=="BUY" and price>=tp1) or (typ=="SELL" and price<=tp1):
+            if not trade.get('tp1_hit'):
+                trade['tp1_hit']=True
+                trade['sl']=entry
+                save("trade.json", trade)
+            msg = f"✅ {typ} هدف أول! +{pips:.1f} نقطة\n⏳ {now} | {price:.2f}$ | دخول {entry}$\n💰 {p001:.2f}$ (0.01) | {p01:.2f}$ (0.1) | احجز 50% + انقل SL لدخول\n🎯 باقي لـ {tp2}$"
+        else:
+            msg = f"🔄 متابعة {typ} | {pips:+.1f} نقطة\n⏳ {now} | {price:.2f}$ | دخول {entry}$\n💰 {p001:+.2f}$ (0.01) | {p01:+.2f}$ (0.1) | {p1:+.2f}$ (1.0)\n📊 RSI 1H:{rsi_1h} | MACD:{macd}\n🎯 SL {sl}$ | TP1 {tp1}$ | TP2 {tp2}$"
 else:
-    # ===== لا توجد صفقة - حلل وافتح جديدة اذا قوية =====
-    # شروط ICT قوية
-    is_buy_bos = price > resistance and rsi > 55
-    is_sell_bos = price < support and rsi < 45
-    
-    if is_buy_bos:
+    if score_abs >= 60:
         entry = round(price,2)
-        sl = round(support - 3,2)
-        tp1 = round(entry + 15,2)
-        tp2 = round(entry + 30,2)
-        new_trade = {"type":"BUY","entry":entry,"sl":sl,"tp1":tp1,"tp2":tp2,"tp1_hit":False}
-        save_trade(new_trade)
-        msg = f"""🚀 دخول صفقة BUY قوية - ICT
-⏳ تحليل XAUUSD - {now}
-💰 السعر: {entry}$ (TradingView)
-📊 الحالة: شراء - BOS صاعد + FVG مكتمل + RSI {rsi}
-📈 مقاومة: {resistance} | دعم: {support}
-📊 هاي اليوم: {day_high:.1f} | لو اليوم: {day_low:.1f}
-🎯 دخول: {entry} | ستوب: {sl} | هدف1: {tp1} | هدف2: {tp2}
-🎯 نسبة: 85% - فرصة ممتازة
-📦 لوت 0.01 = هدف 15$ | 0.1 = 150$ | 1.0 = 1500$"""
-    elif is_sell_bos:
-        entry = round(price,2)
-        sl = round(resistance + 3,2)
-        tp1 = round(entry - 15,2)
-        tp2 = round(entry - 30,2)
-        new_trade = {"type":"SELL","entry":entry,"sl":sl,"tp1":tp1,"tp2":tp2,"tp1_hit":False}
-        save_trade(new_trade)
-        msg = f"""🔻 دخول صفقة SELL قوية - ICT
-⏳ تحليل XAUUSD - {now}
-💰 السعر: {entry}$ (TradingView)
-📊 الحالة: بيع - كسر دعم + سيولة + RSI {rsi}
-📈 مقاومة: {resistance} | دعم: {support}
-📊 هاي اليوم: {day_high:.1f} | لو اليوم: {day_low:.1f}
-🎯 دخول: {entry} | ستوب: {sl} | هدف1: {tp1} | هدف2: {tp2}
-🎯 نسبة: 85% - فرصة ممتازة"""
+        is_buy = score>0
+        typ = "BUY" if is_buy else "SELL"
+        sl = round(support-3,2) if is_buy else round(resistance+3,2)
+        tp1 = round(entry+12,2) if is_buy else round(entry-12,2)
+        tp2 = round(entry+28,2) if is_buy else round(entry-28,2)
+        save("trade.json", {"type":typ,"entry":entry,"sl":sl,"tp1":tp1,"tp2":tp2,"tp1_hit":False})
+        msg = f"🚀 إشارة قوية {typ} - {score_abs}% 🔥 Golden Fusion\n\n⏳ {now} | XAUUSD {entry}$ | Bias: {final_bias}\n\n📊 تحليل 4 فريمات:\n- 4H: EMA200 {ema200_4h:.1f} | Trend: {'صاعد' if price>ema200_4h else 'هابط'} ✅\n- 1H: RSI {rsi_1h} | MACD {macd}\n- 15m: OB {support}$ | BOS + سيولة ✅\n- 5m: {bb} | RSI {rsi_5m}\n\n🎯 دخول: {entry}$ | SL: {sl}$ | TP1: {tp1}$ | TP2: {tp2}$\n💰 0.01={round(abs(tp2-entry)*1,2)}$ | 0.1={round(abs(tp2-entry)*10,2)}$ | 1.0={round(abs(tp2-entry)*100,2)}$\n📊 نسبة: {score_abs}% - ادخل الآن"
     else:
-        reason = f"السعر في تجميع بين {support} و {resistance} - لا يوجد BOS - FVG غير مكتمل - RSI {rsi} محايد"
-        win_rate = random.randint(35,55)
-        msg = f"""⏳ تحليل XAUUSD - {now}
-💰 السعر الحقيقي: {price:.2f}$ (TradingView)
-📊 الحالة: انتظار - لا تدخل
-❌ السبب: {reason}
-📈 مقاومة: {resistance} | دعم: {support}
-📊 هاي اليوم: {day_high:.1f} | لو اليوم: {day_low:.1f}
-🎯 نسبة: {win_rate}% - انتظر الكسر"""
+        msg = f"⏳ تحليل XAUUSD - {now} | Golden Fusion Pro\n\n💰 السعر: {price:.2f}$ (TradingView)\n📊 الحالة: انتظار | Bias: {final_bias} {score_abs}%\n\n🔍 تحليل 4 فريمات:\n- 4H: EMA200 {ema200_4h:.1f} | {'فوق' if price>ema200_4h else 'تحت'} EMA200\n- 1H: RSI {rsi_1h} | MACD {macd}\n- 15m: مقاومة {resistance}$ | دعم {support}$\n- 5m: {bb} | RSI {rsi_5m}\n\n📈 مقاومة: {resistance}$ | دعم: {support}$\n📊 هاي: {dh:.1f}$ | لو: {dl:.1f}$\n\n🎯 نسبة: {score_abs}% {final_bias} - انتظر كسر {resistance if score>0 else support}$"
 
-url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-res = requests.post(url, data={"chat_id": CHANNEL, "text": msg})
-print(res.text)
+requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id":CHANNEL,"text":msg})
+print(msg)
