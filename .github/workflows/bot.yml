@@ -1,21 +1,28 @@
-name: gold
+name: gold-bot
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 jobs:
-  build:
+  bot:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - run: pip install requests
+      - name: Restore small files
+        run: |
+          [ -f trade.json ] || echo '{"none":1}' > trade.json
+          [ -f daily.json ] || echo '{"date":"2026-01-01","pips":0,"win":0,"loss":0,"trades":0}' > daily.json
+          [ -f last_weak.json ] || echo '{"time":0}' > last_weak.json
       - run: python yalla_gold_bot.py
-      - run: |
-          git config --global user.name "YallaGold"
-          git config --global user.email "bot@yallagold.com"
-          git add trade.json daily.json last_signal.json || true
-          git commit -m "update" || true
+      - name: Save small files
+        if: always()
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@bot.com"
+          git add trade.json daily.json last_weak.json || true
+          git commit -m "save" || true
           git push || true
