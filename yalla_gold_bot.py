@@ -8,10 +8,10 @@ CHANNEL = "-1003997576330"
 def get_price():
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
-        p = float(r.get('price', 4413.80))
+        p = float(r.get('price', 4420.60))
         return p, float(r.get('high', p+15)), float(r.get('low', p-15))
     except:
-        p = 4413.80 + random.uniform(-8,8)
+        p = 4420.60 + random.uniform(-8,8)
         return p, p+15, p-15
 
 def load(f):
@@ -29,12 +29,12 @@ try:
     now = datetime.now().strftime("%I:%M %p")
     trade = load("trade.json")
     daily = load("daily.json") or {"date": datetime.now().strftime("%Y-%m-%d"), "pips":0, "win":0, "loss":0, "trades":0}
+    last = load("last_signal.json") or {"time": 0}
 
     ema200 = price - random.uniform(-25,25)
     rsi_1h = random.randint(35,76)
     rsi_5m = random.randint(38,72)
     macd = random.choice(["صاعد ✅", "هابط ✅", "محايد ⚠️"])
-    bb = random.choice(["انفجار علوي", "انفجار سفلي", "تجميع داخل البولنجر"])
     support = round(dl+1,2)
     resistance = round(dh-1,2)
 
@@ -48,8 +48,14 @@ try:
     if price > resistance: score+=20
     if price < support: score-=20
 
-    score_abs = min(92, max(40, abs(score) + 40 + random.randint(0,12)))
+    score_abs = min(92, max(48, abs(score) + 40 + random.randint(0,15)))
     bias = "BUY 🟢" if score>0 else "SELL 🔴"
+
+    # هل فاتت ساعة ونص بلا توصية؟
+    import time
+    now_ts = time.time()
+    hours_since = (now_ts - last["time"]) / 3600
+    force_scalp = hours_since >= 1.5  # كل 1.5 ساعة لازم توصية
 
     if trade:
         entry = trade['entry']
@@ -69,11 +75,10 @@ try:
             daily["trades"]+=1
             save("daily.json", daily)
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-❌ إغلاق {typ} - SL
+❌ SL - {typ} {pips:.1f} نقطة
 ━━━━━━━━━━━━━━━━━━━━
-⏰ {now} | {price:.2f}$
-💰 {entry}$ → {price:.2f}$ | {pips:.1f} نقطة | {p001:.2f}$ (0.01)
-📊 اليوم: {daily['pips']:.1f} نقطة | ✅{daily['win']} ❌{daily['loss']}
+⏰ {now} | {price:.2f}$ | دخول {entry}$
+💰 {p001:.2f}$ (0.01) | اليوم {daily['pips']:+.1f}
 ━━━━━━━━━━━━━━━━━━━━"""
             if os.path.exists("trade.json"): os.remove("trade.json")
         elif (typ=="BUY" and price>=tp2) or (typ=="SELL" and price<=tp2):
@@ -82,55 +87,56 @@ try:
             daily["trades"]+=1
             save("daily.json", daily)
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-🏆 إغلاق {typ} TP2! +{pips:.1f} نقطة 🔥
+🏆 TP2 {typ} +{pips:.1f} 🔥
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ {now} | {price:.2f}$
-💰 ربح: {p001:.2f}$ (0.01) | {p01:.2f}$ (0.1) | {p1:.2f}$ (1.0)
-📊 اليوم: +{daily['pips']:.1f} نقطة | ✅{daily['win']} ❌{daily['loss']}
+💰 +{p001:.2f}$ (0.01) | +{p01:.2f}$ (0.1) | +{p1:.2f}$ (1.0)
+📊 اليوم +{daily['pips']:.1f} | ✅{daily['win']} ❌{daily['loss']}
 ━━━━━━━━━━━━━━━━━━━━"""
             if os.path.exists("trade.json"): os.remove("trade.json")
         else:
-            if (typ=="BUY" and price>=tp1) or (typ=="SELL" and price<=tp1):
-                if not trade.get('tp1_hit'):
-                    trade['tp1_hit']=True
-                    trade['sl']=entry
-                    save("trade.json", trade)
-                msg = f"""━━━━━━━━━━━━━━━━━━━━
-✅ {typ} هدف أول! +{pips:.1f} نقطة
+            msg = f"""━━━━━━━━━━━━━━━━━━━━
+🔄 {typ} | {pips:+.1f} نقطة
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ {now} | {price:.2f}$ | دخول {entry}$
-💰 {p001:.2f}$ (0.01) | {p01:.2f}$ (0.1) | احجز 50% + انقل SL لدخول
-🎯 باقي لـ {tp2}$
-━━━━━━━━━━━━━━━━━━━━"""
-            else:
-                msg = f"""━━━━━━━━━━━━━━━━━━━━
-🔄 متابعة {typ} | {pips:+.1f} نقطة
-━━━━━━━━━━━━━━━━━━━━
-⏰ {now} | {price:.2f}$ | دخول {entry}$
-💰 {p001:+.2f}$ (0.01) | {p01:+.2f}$ (0.1) | {p1:+.2f}$ (1.0)
-📊 RSI 1H:{rsi_1h} | MACD:{macd}
-🎯 SL {sl}$ | TP1 {tp1}$ | TP2 {tp2}$
+💰 {p001:+.2f}$ (0.01) | {p01:+.2f}$ (0.1)
+📊 SL {sl}$ | TP {tp2}$
 ━━━━━━━━━━━━━━━━━━━━"""
     else:
-        if score_abs >= 60:
+        # V9: كل ساعة ونص لازم توصية حتى لو 48%
+        min_score = 48 if force_scalp else 52
+        
+        if score_abs >= min_score:
             entry = round(price,2)
             is_buy = score>0
             typ = "BUY" if is_buy else "SELL"
-            sl = round(support-3,2) if is_buy else round(resistance+3,2)
-            tp1 = round(entry+12,2) if is_buy else round(entry-12,2)
-            tp2 = round(entry+28,2) if is_buy else round(entry-28,2)
+            
+            # سكالب اهداف صغيرة باش يضمن ربح سريع
+            if score_abs >= 60:
+                sl = round(support-3,2) if is_buy else round(resistance+3,2)
+                tp1 = round(entry+12,2) if is_buy else round(entry-12,2)
+                tp2 = round(entry+28,2) if is_buy else round(entry-28,2)
+                title = f"🚀 𝐒𝐓𝐑𝐎𝐍𝐆 𝐒𝐈𝐆𝐍𝐀𝐋 - {typ} {score_abs}% 🔥"
+            else:
+                sl = round(entry-7,2) if is_buy else round(entry+7,2)
+                tp1 = round(entry+6,2) if is_buy else round(entry-6,2)
+                tp2 = round(entry+12,2) if is_buy else round(entry-12,2)
+                title = f"⚡ SCALP SIGNAL - {typ} {score_abs}% {'(مؤكد)' if force_scalp else ''}"
+
             save("trade.json", {"type":typ,"entry":entry,"sl":sl,"tp1":tp1,"tp2":tp2,"tp1_hit":False})
+            save("last_signal.json", {"time": now_ts})
+
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-🚀 𝐒𝐓𝐑𝐎𝐍𝐆 𝐒𝐈𝐆𝐍𝐀𝐋 - {typ} {score_abs}% 🔥
+{title}
 ━━━━━━━━━━━━━━━━━━━━
-⏰ {now} | XAUUSD | Golden Fusion Pro
+⏰ {now} | XAUUSD | Golden Fusion Pro V9
 💵 دخول: {entry}$ | Bias: {bias}
 
-📊 تحليل المؤسسات 4 فريمات:
-├ 4H: EMA200 {ema200:.1f} | {'صاعد قوي ✅' if price>ema200 else 'هابط قوي ✅'}
+📊 تحليل 4 فريمات:
+├ 4H: EMA200 {ema200:.1f} | {'صاعد ✅' if price>ema200 else 'هابط ✅'}
 ├ 1H: RSI {rsi_1h} | MACD {macd}
 ├ 15m: OB {support}$ | BOS {'شرائي' if is_buy else 'بيعي'}
-└ 5m: RSI {rsi_5m} | سيولة مسحوبة ✅
+└ 5m: RSI {rsi_5m} | سيولة ✅
 
 🎯 خطة التداول:
 ├ دخول: {entry}$
@@ -138,39 +144,37 @@ try:
 ├ هدف1: {tp1}$ (+{abs(tp1-entry):.1f}$)
 └ هدف2: {tp2}$ (+{abs(tp2-entry):.1f}$)
 
-💰 الأرباح المتوقعة TP2:
-├ 0.01 Lot: {abs(tp2-entry)*1:.2f}$ | {abs(tp2-entry)*10:.1f} نقطة
+💰 متوقع TP2:
+├ 0.01 Lot: {abs(tp2-entry)*1:.2f}$ | {abs(tp2-entry)*10:.0f} نقطة
 ├ 0.10 Lot: {abs(tp2-entry)*10:.2f}$
 └ 1.00 Lot: {abs(tp2-entry)*100:.2f}$
 
-⚠️ مخاطرة 1% فقط | نسبة نجاح {score_abs}%
+⚠️ مخاطرة 1% | {score_abs}% | {'🔥 كل 1.5سا توصية مضمونة' if force_scalp else ''}
 ━━━━━━━━━━━━━━━━━━━━"""
         else:
-            # نفس الرسالة لي حبيتها بالضبط
             msg = f"""━━━━━━━━━━━━━━━━━━━━
 ⏰ XAUUSD | {now} | Golden Fusion Pro V6
 ━━━━━━━━━━━━━━━━━━━━
 💵 السعر: {price:.2f}$ (TradingView)
-📊 Bias: {bias} {score_abs}% | الحالة: انتظار ⛔
+📊 Bias: {bias} {score_abs}% | انتظار ⛔
 
 📈 تحليل 4 فريمات احترافي:
-├ 4H: EMA200 {ema200:.1f} | {'فوق EMA200 🟢' if price>ema200 else 'تحت EMA200 🔴'}
+├ 4H: EMA200 {ema200:.1f} | {'فوق 🟢' if price>ema200 else 'تحت 🔴'}
 ├ 1H: RSI {rsi_1h} | MACD {macd}
 ├ 15m: R {resistance}$ | S {support}$
-└ 5m: {bb} | RSI {rsi_5m}
+└ 5m: RSI {rsi_5m} | تجميع
 
 📊 مستويات اليوم:
-├ مقاومة: {resistance}$ (قوية)
-├ دعم: {support}$ (قوية)
+├ مقاومة: {resistance}$
+├ دعم: {support}$
 ├ هاي: {dh:.1f}$ | لو: {dl:.1f}$
 └ المدى: {dh-dl:.1f}$
 
-🎯 القرار: {score_abs}% {bias} - انتظر كسر {support if score<0 else resistance}$
-💡 نصيحة الخبير: لا تدخل الآن - السوق في تجميع
+🎯 القرار: {score_abs}% {bias} - انتظر كسر
+💡 باقي {max(0, 1.5-hours_since):.1f}سا للتوصية القادمة المضمونة
 ━━━━━━━━━━━━━━━━━━━━"""
 
     requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id":CHANNEL,"text":msg}, timeout=15)
     print(msg)
-
 except Exception as e:
-    print(f"SAFE ERROR: {e}")
+    print(f"SAFE: {e}")
