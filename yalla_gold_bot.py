@@ -6,13 +6,11 @@ BOT_TOKEN = "8715298565:AAF-UKEgYjry5rifPIkJ6b5r2rRYRDYHwoM"
 CHANNEL = "-1003997576330"
 
 def get_gold_price():
-    # 1- يحاول يجيب سعر الذهب الحقيقي XAU
     try:
         r=requests.get("https://api.gold-api.com/price/XAU",timeout=10).json()
-        return float(r['price']) # سعر حقيقي 4412$
+        return float(r['price'])
     except:
         try:
-            # 2- fallback PAXG من Binance
             url="https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
             return float(requests.get(url,timeout=10).json()['price'])
         except:
@@ -44,21 +42,16 @@ def atr(candles, p=14):
         trs.append(max(candles[i]['h']-candles[i]['l'], abs(candles[i]['h']-candles[i-1]['c']), abs(candles[i]['l']-candles[i-1]['c'])))
     return sum(trs[-p:])/p if len(trs)>=p else 5
 
-# ✅ تصليح 3: OB حقيقي مثل صورتك
 def detect_ob_real(candles):
     ob_bull=None; ob_bear=None; ob_bull_price=0; ob_bear_price=0
-    # يدور على آخر 15 شمعة
     for i in range(len(candles)-15, len(candles)-3):
-        # OB صاعد: شمعة حمراء قبل صعود قوي (مثل صورتك 4438$)
-        if candles[i]['c'] < candles[i]['o']: # حمراء
-            # بعدها شمعتين خضر قوية
+        if candles[i]['c'] < candles[i]['o']:
             if candles[i+1]['c'] > candles[i+1]['o'] and candles[i+2]['c'] > candles[i+1]['h']:
                 body = candles[i+1]['c']-candles[i+1]['o']
                 rng = candles[i+1]['h']-candles[i+1]['l']
-                if rng>0 and body/rng > 0.6: # جسم قوي 60%+
+                if rng>0 and body/rng > 0.6:
                     ob_bull=True; ob_bull_price=candles[i]['l']
-        # OB هابط
-        if candles[i]['c'] > candles[i]['o']: # خضراء
+        if candles[i]['c'] > candles[i]['o']:
             if candles[i+1]['c'] < candles[i+1]['o'] and candles[i+2]['c'] < candles[i+1]['l']:
                 body = candles[i+1]['o']-candles[i+1]['c']
                 rng = candles[i+1]['h']-candles[i+1]['l']
@@ -83,17 +76,16 @@ try:
     gold_price=get_gold_price()
     c5=get_candles("5m",100); c15=get_candles("15m",100); c1h=get_candles("1h",100); c4h=get_candles("4h",100)
 
-    # ✅ تصليح 5: إذا API طاح يخبرك
     if not gold_price or not c5:
-        send_tg(f"⚠️ خطأ API - Gold Price أو Binance ما يرد | {datetime.now().strftime('%I:%M %p')}\nسأحاول بعد 5د")
+        send_tg(f"⚠️ خطأ API - Gold Price أو Binance ما يرد | {datetime.now().strftime('%I:%M %p')}")
         raise Exception("API fail")
 
-    price=gold_price # الآن سعر حقيقي من Gold API
+    price=gold_price
     now=datetime.now()
     trade=load("trade.json")
     last_weak=load("last_weak.json") or {"time":0}
 
-    rsi5=rsi(c5,14); ema200_4h=ema(c4h,200); ema50_1h=ema(c1h,50); atr5=atr(c5,14)
+    rsi5=rsi(c5,14); ema200_4h=ema(c4h,200); atr5=atr(c5,14)
     fvg_bull = c5[-2]['l'] > c5[-4]['h']; fvg_bear = c5[-2]['h'] < c5[-4]['l']
     last_h=max([c['h'] for c in c5[-11:-1]]); last_l=min([c['l'] for c in c5[-11:-1]])
     mss_bull=price>last_h; mss_bear=price<last_l
@@ -149,7 +141,6 @@ OB {'صاعد '+str(ob_bull_p)+'$' if ob_bull else 'هابط '+str(ob_bear_p)+'$
     send_tg(msg); print(msg)
 
 except Exception as e:
-    # ✅ إذا أي خطأ يرسل لك
     err_msg=f"⚠️ خطأ V18: {str(e)[:100]} | {datetime.now().strftime('%I:%M %p')}"
     print(err_msg)
     try: send_tg(err_msg)
