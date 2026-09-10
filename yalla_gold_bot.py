@@ -1,4 +1,4 @@
-# V19.2 DEBUG - يرسل رسالة اختبار أولا
+# V19.3 FIXED - يمسح trade.json الفاسد
 import requests, json, os, time
 from datetime import datetime
 
@@ -9,29 +9,23 @@ def send_tg(text):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         r = requests.post(url, data={"chat_id":CHANNEL,"text":text}, timeout=15)
-        print(f"TG response: {r.status_code} - {r.text[:200]}")
+        print(f"TG: {r.status_code}")
         return r
     except Exception as e:
         print(f"TG fail: {e}")
         return None
 
-# رسالة اختبار فورية - باش نعرفو البوت حي ولا لا
-send_tg(f"✅ DEBUG V19.2 - البوت اشتغل {datetime.now().strftime('%I:%M:%S %p')} - جاري جلب TradingView...")
+send_tg(f"✅ V19.3 FIXED - {datetime.now().strftime('%I:%M:%S %p')} - TradingView...")
 
 def get_tv_price():
     try:
         url = "https://scanner.tradingview.com/forex/scan"
         payload = {"symbols":{"tickers":["OANDA:XAUUSD"],"query":{"types":[]}},"columns":["close"]}
         headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
-        r = requests.post(url, json=payload, headers=headers, timeout=10)
-        print(f"TV scanner status: {r.status_code}")
-        data = r.json()
-        price = float(data['data'][0]['d'][0])
-        if 1000 < price < 10000:
-            return price
-    except Exception as e:
-        print(f"TV scanner fail: {e}")
-    return None
+        r = requests.post(url, json=payload, headers=headers, timeout=10).json()
+        price = float(r['data'][0]['d'][0])
+        if 1000 < price < 10000: return price
+    except: return None
 
 def get_tv_candles(interval_tv, limit=100):
     try:
@@ -41,24 +35,20 @@ def get_tv_candles(interval_tv, limit=100):
         from_ts = to_ts - (limit * mins * 60) - 3600
         url = f"https://api.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}"
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=10)
-        print(f"TV history {interval_tv} status: {r.status_code}")
-        data = r.json()
-        if data.get('s') == 'ok' and 'c' in data and len(data['c']) > 10:
+        r = requests.get(url, headers=headers, timeout=10).json()
+        if r.get('s') == 'ok' and 'c' in r and len(r['c']) > 10:
             candles = []
-            for i in range(len(data['c'])):
-                candles.append({"o": float(data['o'][i]),"h": float(data['h'][i]),"l": float(data['l'][i]),"c": float(data['c'][i]),"v": 100})
+            for i in range(len(r['c'])):
+                candles.append({"o": float(r['o'][i]),"h": float(r['h'][i]),"l": float(r['l'][i]),"c": float(r['c'][i]),"v": 100})
             return candles[-limit:]
-    except Exception as e:
-        print(f"TV candles fail {interval_tv}: {e}")
+    except: pass
     return None
 
 def get_binance_candles(interval, limit=100):
     for base in ["https://api.binance.com", "https://data-api.binance.vision"]:
         try:
             url = f"{base}/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}"
-            r = requests.get(url, timeout=10)
-            data = r.json()
+            data = requests.get(url, timeout=10).json()
             if isinstance(data, list) and len(data) > 10:
                 return [{"o":float(c[1]),"h":float(c[2]),"l":float(c[3]),"c":float(c[4]),"v":float(c[5])} for c in data]
         except: continue
@@ -69,8 +59,7 @@ def get_gold_price():
     if p: return p
     for base in ["https://api.binance.com", "https://data-api.binance.vision"]:
         try:
-            r = requests.get(f"{base}/api/v3/ticker/price?symbol=PAXGUSDT", timeout=8)
-            p = float(r.json()['price'])
+            p = float(requests.get(f"{base}/api/v3/ticker/price?symbol=PAXGUSDT", timeout=8).json()['price'])
             if 1000 < p < 10000: return p
         except: pass
     return None
@@ -128,17 +117,22 @@ def save(f,d):
 
 try:
     c5=get_candles("5m",100)
-    print(f"c5 result: {c5[:1] if c5 else None}")
     if not c5:
-        send_tg(f"⚠️ فشل جلب الشموع - TV و Binance كلهم ما يردو {datetime.now().strftime('%I:%M %p')}")
+        send_tg(f"⚠️ فشل الشموع - TV و Binance")
         raise Exception("كل المصادر طاحت")
     c1h=get_candles("1h",100); c4h=get_candles("4h",100)
     if not c1h: c1h=c5
     if not c4h: c4h=c5
-
     gold_price=get_gold_price()
     if not gold_price: gold_price = c5[-1]['c']
-    price=gold_price; now=datetime.now(); trade=load("trade.json")
+    price=gold_price; now=datetime.now()
+    trade=load("trade.json")
+    # FIX: اذا trade.json فاسد احذفو
+    if trade and "entry" not in trade:
+        try: os.remove("trade.json")
+        except: pass
+        trade = None
+
     rsi5=rsi(c5,14); ema200_4h=ema(c4h,200); atr5=atr(c5,14)
     fvg_bull = c5[-2]['l'] > c5[-4]['h']; fvg_bear = c5[-2]['h'] < c5[-4]['l']
     last_h=max([c['h'] for c in c5[-11:-1]]); last_l=min([c['l'] for c in c5[-11:-1]])
@@ -180,9 +174,9 @@ try:
         else:
             msg=f"⏳ TV {price:.1f}$ | {now.strftime('%I:%M %p')} | RSI {rsi5:.0f} | Buy {buy_score}/6 Sell {sell_score}/6 | OB {'صاعد' if ob_bull else 'هابط' if ob_bear else 'لا يوجد'}"
 
-    send_tg(msg); print(f"Final msg: {msg}")
+    send_tg(msg)
 
 except Exception as e:
-    err_msg=f"⚠️ خطأ V19.2: {str(e)[:200]} | {datetime.now().strftime('%I:%M %p')}"
+    err_msg=f"⚠️ خطأ V19.3: {str(e)[:200]} | {datetime.now().strftime('%I:%M %p')}"
     print(err_msg)
     send_tg(err_msg)
