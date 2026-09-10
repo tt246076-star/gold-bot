@@ -9,7 +9,8 @@ def get_tv_price():
     try:
         url = "https://scanner.tradingview.com/forex/scan"
         payload = {"symbols":{"tickers":["OANDA:XAUUSD"],"query":{"types":[]}},"columns":["close"]}
-        r = requests.post(url, json=payload, timeout=10).json()
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+        r = requests.post(url, json=payload, headers=headers, timeout=10).json()
         price = float(r['data'][0]['d'][0])
         if 1000 < price < 10000:
             print(f"TV price OANDA:XAUUSD = {price}")
@@ -29,9 +30,10 @@ def get_tv_candles(interval_tv, limit=100):
             f"https://api.new.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}",
             f"https://price.tradingview.com/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}"
         ]
+        headers = {"User-Agent": "Mozilla/5.0"}
         for url in endpoints:
             try:
-                r = requests.get(url, timeout=10).json()
+                r = requests.get(url, headers=headers, timeout=10).json()
                 if r.get('s') == 'ok' and 'c' in r and len(r['c']) > 10:
                     candles = []
                     for i in range(len(r['c'])):
@@ -178,7 +180,6 @@ try:
             save("trade.json",{"type":"SELL","entry":entry,"sl":sl,"tp2":tp}); save("last_weak.json",{"time":time.time()})
             msg=f"💎 TV SELL قوي 88% | {price:.1f}$ TradingView\n⏰ {now.strftime('%I:%M %p')} | OANDA:XAUUSD | OB {ob_bear_p}$"
         else:
-            if time.time() - last_weak["time"] < 900: print("SKIP weak"); exit()
             save("last_weak.json",{"time":time.time()})
             msg=f"⏳ تحليلي TV {price:.1f}$ | {now.strftime('%I:%M %p')}\nRSI {rsi5:.0f} | Buy {buy_score}/6 Sell {sell_score}/6\nOB {'صاعد '+str(ob_bull_p)+'$' if ob_bull else 'هابط '+str(ob_bear_p)+'$' if ob_bear else 'لا يوجد'} | FVG {'نعم' if fvg_bull or fvg_bear else 'لا'}\n🧠 TradingView مباشر - أنتظر OB حقيقي"
     send_tg(msg); print(msg)
