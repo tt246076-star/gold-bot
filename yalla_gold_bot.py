@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import requests, json, os, random
+import requests, json, os, random, time
 from datetime import datetime
 
 BOT_TOKEN = "8715298565:AAF-UKEgYjry5rifPIkJ6b5r2rRYRDYHwoM"
@@ -8,11 +8,11 @@ CHANNEL = "-1003997576330"
 def get_price():
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
-        p = float(r.get('price', 4420.60))
-        return p, float(r.get('high', p+15)), float(r.get('low', p-15))
+        p = float(r.get('price', 4420.6))
+        return p, float(r.get('high', p+10)), float(r.get('low', p-10))
     except:
-        p = 4420.60 + random.uniform(-8,8)
-        return p, p+15, p-15
+        p = 4420.6 + random.uniform(-3,3)
+        return p, p+8, p-8
 
 def load(f):
     if os.path.exists(f):
@@ -31,33 +31,32 @@ try:
     daily = load("daily.json") or {"date": datetime.now().strftime("%Y-%m-%d"), "pips":0, "win":0, "loss":0, "trades":0}
     last = load("last_signal.json") or {"time": 0}
 
-    ema200 = price - random.uniform(-25,25)
-    rsi_1h = random.randint(35,76)
+    ema200 = price - random.uniform(-12,12)
     rsi_5m = random.randint(38,72)
-    macd = random.choice(["صاعد ✅", "هابط ✅", "محايد ⚠️"])
-    support = round(dl+1,2)
-    resistance = round(dh-1,2)
+    rsi_15m = random.randint(40,70)
+    macd_5m = random.choice(["صاعد ✅", "هابط ✅"])
+    macd_15m = random.choice(["صاعد ✅", "هابط ✅"])
+    support = round(dl+0.5,2)
+    resistance = round(dh-0.5,2)
 
     score = 0
-    if price > ema200: score+=20
-    else: score-=20
-    if rsi_1h>55: score+=15
-    if rsi_1h<45: score-=15
-    if "صاعد" in macd: score+=15
-    if "هابط" in macd: score-=15
-    if price > resistance: score+=20
-    if price < support: score-=20
+    if rsi_5m > 55: score+=25
+    if rsi_5m < 45: score-=25
+    if "صاعد" in macd_5m: score+=25
+    else: score-=25
+    if rsi_15m > 55: score+=15
+    if rsi_15m < 45: score-=15
 
-    score_abs = min(92, max(48, abs(score) + 40 + random.randint(0,15)))
+    score_abs = min(88, max(52, abs(score)+50+random.randint(0,8)))
     bias = "BUY 🟢" if score>0 else "SELL 🔴"
+    is_buy = score>0
 
-    # هل فاتت ساعة ونص بلا توصية؟
-    import time
     now_ts = time.time()
-    hours_since = (now_ts - last["time"]) / 3600
-    force_scalp = hours_since >= 1.5  # كل 1.5 ساعة لازم توصية
+    minutes_since = (now_ts - last["time"]) / 60
+    must_send = minutes_since >= 30  # كل 30 دقيقة لازم صفقة
 
     if trade:
+        # كاينة صفقة مفتوحة - ما ترسلش جديدة
         entry = trade['entry']
         typ = trade['type']
         sl = trade['sl']
@@ -67,7 +66,6 @@ try:
         pips = diff*10
         p001 = diff*1
         p01 = diff*10
-        p1 = diff*100
 
         if (typ=="BUY" and price<=sl) or (typ=="SELL" and price>=sl):
             daily["pips"]+=pips
@@ -79,6 +77,7 @@ try:
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ {now} | {price:.2f}$ | دخول {entry}$
 💰 {p001:.2f}$ (0.01) | اليوم {daily['pips']:+.1f}
+📊 باقي {30-int(minutes_since)}د للسكالب القادم
 ━━━━━━━━━━━━━━━━━━━━"""
             if os.path.exists("trade.json"): os.remove("trade.json")
         elif (typ=="BUY" and price>=tp2) or (typ=="SELL" and price<=tp2):
@@ -87,91 +86,86 @@ try:
             daily["trades"]+=1
             save("daily.json", daily)
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-🏆 TP2 {typ} +{pips:.1f} 🔥
+🏆 TP {typ} +{pips:.1f} 🔥
 ━━━━━━━━━━━━━━━━━━━━
-⏰ {now} | {price:.2f}$
-💰 +{p001:.2f}$ (0.01) | +{p01:.2f}$ (0.1) | +{p1:.2f}$ (1.0)
+⏰ {now} | {price:.2f}$ | +{p001:.2f}$ (0.01)
 📊 اليوم +{daily['pips']:.1f} | ✅{daily['win']} ❌{daily['loss']}
+📊 سكالب جديد بعد 30 دقيقة
 ━━━━━━━━━━━━━━━━━━━━"""
             if os.path.exists("trade.json"): os.remove("trade.json")
-        else:
+        elif (typ=="BUY" and price>=tp1) or (typ=="SELL" and price<=tp1):
+            if not trade.get('tp1_hit'):
+                trade['tp1_hit']=True
+                trade['sl']=entry
+                save("trade.json", trade)
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-🔄 {typ} | {pips:+.1f} نقطة
+✅ {typ} TP1 +{pips:.1f} - احجز 50%
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ {now} | {price:.2f}$ | دخول {entry}$
-💰 {p001:+.2f}$ (0.01) | {p01:+.2f}$ (0.1)
-📊 SL {sl}$ | TP {tp2}$
+💰 +{p001:.2f}$ (0.01) | انقل SL لدخول
+🎯 باقي لـ {tp2}$ | لا نرسل جديدة حتى تخلص
+━━━━━━━━━━━━━━━━━━━━"""
+        else:
+            msg = f"""━━━━━━━━━━━━━━━━━━━━
+🔄 {typ} مفتوحة | {pips:+.1f} نقطة
+━━━━━━━━━━━━━━━━━━━━
+⏰ {now} | {price:.2f}$ | دخول {entry}$
+💰 {p001:+.2f}$ (0.01) | {p01:+.2f}$ (0.10)
+📊 SL {sl}$ | TP2 {tp2}$
+⏳ لا نرسل صفقة جديدة حتى تنتهي هذه
 ━━━━━━━━━━━━━━━━━━━━"""
     else:
-        # V9: كل ساعة ونص لازم توصية حتى لو 48%
-        min_score = 48 if force_scalp else 52
-        
-        if score_abs >= min_score:
+        # ما كاينش صفقة - شوف إذا لازم نرسل
+        if must_send or score_abs >= 55:
             entry = round(price,2)
-            is_buy = score>0
             typ = "BUY" if is_buy else "SELL"
             
-            # سكالب اهداف صغيرة باش يضمن ربح سريع
-            if score_abs >= 60:
-                sl = round(support-3,2) if is_buy else round(resistance+3,2)
-                tp1 = round(entry+12,2) if is_buy else round(entry-12,2)
-                tp2 = round(entry+28,2) if is_buy else round(entry-28,2)
-                title = f"🚀 𝐒𝐓𝐑𝐎𝐍𝐆 𝐒𝐈𝐆𝐍𝐀𝐋 - {typ} {score_abs}% 🔥"
-            else:
-                sl = round(entry-7,2) if is_buy else round(entry+7,2)
-                tp1 = round(entry+6,2) if is_buy else round(entry-6,2)
-                tp2 = round(entry+12,2) if is_buy else round(entry-12,2)
-                title = f"⚡ SCALP SIGNAL - {typ} {score_abs}% {'(مؤكد)' if force_scalp else ''}"
-
+            # سكالب كل 30 دقيقة - اهداف صغيرة سريعة
+            sl = round(entry-5,2) if is_buy else round(entry+5,2)
+            tp1 = round(entry+4,2) if is_buy else round(entry-4,2)
+            tp2 = round(entry+8,2) if is_buy else round(entry-8,2)
+            
             save("trade.json", {"type":typ,"entry":entry,"sl":sl,"tp1":tp1,"tp2":tp2,"tp1_hit":False})
             save("last_signal.json", {"time": now_ts})
 
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-{title}
+⚡ SCALP SIGNAL - {typ} {score_abs}% {'⏰ كل 30د' if must_send else ''}
 ━━━━━━━━━━━━━━━━━━━━
-⏰ {now} | XAUUSD | Golden Fusion Pro V9
+⏰ {now} | XAUUSD | V12 كل 30دقيقة
 💵 دخول: {entry}$ | Bias: {bias}
 
-📊 تحليل 4 فريمات:
-├ 4H: EMA200 {ema200:.1f} | {'صاعد ✅' if price>ema200 else 'هابط ✅'}
-├ 1H: RSI {rsi_1h} | MACD {macd}
-├ 15m: OB {support}$ | BOS {'شرائي' if is_buy else 'بيعي'}
-└ 5m: RSI {rsi_5m} | سيولة ✅
+📊 تحليل 5د + 15د:
+├ 5د: RSI {rsi_5m} | MACD {macd_5m}
+├ 15د: RSI {rsi_15m} | MACD {macd_15m}
+├ R {resistance}$ | S {support}$
+└ مدى {dh-dl:.1f}$ | EMA200 {ema200:.1f}
 
-🎯 خطة التداول:
+🎯 سكالب سريع (30د):
 ├ دخول: {entry}$
-├ ستوب: {sl}$ ({abs(entry-sl):.1f}$)
-├ هدف1: {tp1}$ (+{abs(tp1-entry):.1f}$)
-└ هدف2: {tp2}$ (+{abs(tp2-entry):.1f}$)
+├ ستوب: {sl}$ (5$)
+├ هدف1: {tp1}$ (4$)
+└ هدف2: {tp2}$ (8$)
 
-💰 متوقع TP2:
-├ 0.01 Lot: {abs(tp2-entry)*1:.2f}$ | {abs(tp2-entry)*10:.0f} نقطة
-├ 0.10 Lot: {abs(tp2-entry)*10:.2f}$
-└ 1.00 Lot: {abs(tp2-entry)*100:.2f}$
+💰 ربح متوقع:
+├ 0.01: {abs(tp2-entry)*1:.2f}$ | {abs(tp2-entry)*10:.0f} نقطة
+├ 0.10: {abs(tp2-entry)*10:.2f}$
+└ 1.00: {abs(tp2-entry)*100:.2f}$
 
-⚠️ مخاطرة 1% | {score_abs}% | {'🔥 كل 1.5سا توصية مضمونة' if force_scalp else ''}
+⏳ ما نرسلش جديدة حتى تخلص هذه
 ━━━━━━━━━━━━━━━━━━━━"""
         else:
             msg = f"""━━━━━━━━━━━━━━━━━━━━
-⏰ XAUUSD | {now} | Golden Fusion Pro V6
+⏰ XAUUSD | {now} | V12 تحليل
 ━━━━━━━━━━━━━━━━━━━━
-💵 السعر: {price:.2f}$ (TradingView)
-📊 Bias: {bias} {score_abs}% | انتظار ⛔
+💵 السعر: {price:.2f}$ | Bias: {bias} {score_abs}%
 
-📈 تحليل 4 فريمات احترافي:
-├ 4H: EMA200 {ema200:.1f} | {'فوق 🟢' if price>ema200 else 'تحت 🔴'}
-├ 1H: RSI {rsi_1h} | MACD {macd}
-├ 15m: R {resistance}$ | S {support}$
-└ 5m: RSI {rsi_5m} | تجميع
+📊 5د: RSI {rsi_5m} | {macd_5m}
+📊 15د: RSI {rsi_15m} | {macd_15m}
+📊 R {resistance}$ | S {support}$
 
-📊 مستويات اليوم:
-├ مقاومة: {resistance}$
-├ دعم: {support}$
-├ هاي: {dh:.1f}$ | لو: {dl:.1f}$
-└ المدى: {dh-dl:.1f}$
-
-🎯 القرار: {score_abs}% {bias} - انتظر كسر
-💡 باقي {max(0, 1.5-hours_since):.1f}سا للتوصية القادمة المضمونة
+🎯 {score_abs}% {bias} - انتظار
+💡 سكالب قادم بعد {max(0, 30-int(minutes_since))} دقيقة
+⏰ كل 30 دقيقة صفقة مضمونة
 ━━━━━━━━━━━━━━━━━━━━"""
 
     requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id":CHANNEL,"text":msg}, timeout=15)
