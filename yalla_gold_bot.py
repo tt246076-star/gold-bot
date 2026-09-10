@@ -1,19 +1,33 @@
-# V19 - TradingView OANDA:XAUUSD مباشرة - ما يطيحش
+# V19.2 DEBUG - يرسل رسالة اختبار أولا
 import requests, json, os, time
 from datetime import datetime
 
 BOT_TOKEN = "8715298565:AAF-UKEgYjry5rifPIkJ6b5r2rRYRDYHwoM"
 CHANNEL = "-1003997576330"
 
+def send_tg(text):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        r = requests.post(url, data={"chat_id":CHANNEL,"text":text}, timeout=15)
+        print(f"TG response: {r.status_code} - {r.text[:200]}")
+        return r
+    except Exception as e:
+        print(f"TG fail: {e}")
+        return None
+
+# رسالة اختبار فورية - باش نعرفو البوت حي ولا لا
+send_tg(f"✅ DEBUG V19.2 - البوت اشتغل {datetime.now().strftime('%I:%M:%S %p')} - جاري جلب TradingView...")
+
 def get_tv_price():
     try:
         url = "https://scanner.tradingview.com/forex/scan"
         payload = {"symbols":{"tickers":["OANDA:XAUUSD"],"query":{"types":[]}},"columns":["close"]}
         headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
-        r = requests.post(url, json=payload, headers=headers, timeout=10).json()
-        price = float(r['data'][0]['d'][0])
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"TV scanner status: {r.status_code}")
+        data = r.json()
+        price = float(data['data'][0]['d'][0])
         if 1000 < price < 10000:
-            print(f"TV price OANDA:XAUUSD = {price}")
             return price
     except Exception as e:
         print(f"TV scanner fail: {e}")
@@ -25,36 +39,26 @@ def get_tv_candles(interval_tv, limit=100):
         to_ts = int(time.time())
         mins = {"5m":5,"15m":15,"1h":60,"4h":240}[interval_tv]
         from_ts = to_ts - (limit * mins * 60) - 3600
-        endpoints = [
-            f"https://api.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}",
-            f"https://api.new.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}",
-            f"https://price.tradingview.com/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}"
-        ]
+        url = f"https://api.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}"
         headers = {"User-Agent": "Mozilla/5.0"}
-        for url in endpoints:
-            try:
-                r = requests.get(url, headers=headers, timeout=10).json()
-                if r.get('s') == 'ok' and 'c' in r and len(r['c']) > 10:
-                    candles = []
-                    for i in range(len(r['c'])):
-                        candles.append({
-                            "o": float(r['o'][i]),
-                            "h": float(r['h'][i]),
-                            "l": float(r['l'][i]),
-                            "c": float(r['c'][i]),
-                            "v": float(r['v'][i]) if 'v' in r else 100
-                        })
-                    return candles[-limit:]
-            except: continue
-    except: pass
+        r = requests.get(url, headers=headers, timeout=10)
+        print(f"TV history {interval_tv} status: {r.status_code}")
+        data = r.json()
+        if data.get('s') == 'ok' and 'c' in data and len(data['c']) > 10:
+            candles = []
+            for i in range(len(data['c'])):
+                candles.append({"o": float(data['o'][i]),"h": float(data['h'][i]),"l": float(data['l'][i]),"c": float(data['c'][i]),"v": 100})
+            return candles[-limit:]
+    except Exception as e:
+        print(f"TV candles fail {interval_tv}: {e}")
     return None
 
 def get_binance_candles(interval, limit=100):
-    bases = ["https://api.binance.com", "https://data-api.binance.vision", "https://api1.binance.com"]
-    for base in bases:
+    for base in ["https://api.binance.com", "https://data-api.binance.vision"]:
         try:
             url = f"{base}/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}"
-            data = requests.get(url, timeout=10).json()
+            r = requests.get(url, timeout=10)
+            data = r.json()
             if isinstance(data, list) and len(data) > 10:
                 return [{"o":float(c[1]),"h":float(c[2]),"l":float(c[3]),"c":float(c[4]),"v":float(c[5])} for c in data]
         except: continue
@@ -63,19 +67,10 @@ def get_binance_candles(interval, limit=100):
 def get_gold_price():
     p = get_tv_price()
     if p: return p
-    try:
-        r = requests.get("https://api.gold-api.com/price/XAU", timeout=8).json()
-        p = float(r.get('price',0))
-        if 1000 < p < 10000: return p
-    except: pass
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd", timeout=8).json()
-        p = float(r['pax-gold']['usd'])
-        if 1000 < p < 10000: return p
-    except: pass
     for base in ["https://api.binance.com", "https://data-api.binance.vision"]:
         try:
-            p = float(requests.get(f"{base}/api/v3/ticker/price?symbol=PAXGUSDT", timeout=8).json()['price'])
+            r = requests.get(f"{base}/api/v3/ticker/price?symbol=PAXGUSDT", timeout=8)
+            p = float(r.json()['price'])
             if 1000 < p < 10000: return p
         except: pass
     return None
@@ -131,17 +126,19 @@ def load(f):
 def save(f,d):
     with open(f,'w',encoding='utf-8') as x: json.dump(d,x)
 
-def send_tg(text):
-    try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id":CHANNEL,"text":text}, timeout=15)
-    except: pass
-
 try:
-    c5=get_candles("5m",100); c15=get_candles("15m",100); c1h=get_candles("1h",100); c4h=get_candles("4h",100)
-    if not c5: raise Exception("كل المصادر طاحت - TV و Binance")
+    c5=get_candles("5m",100)
+    print(f"c5 result: {c5[:1] if c5 else None}")
+    if not c5:
+        send_tg(f"⚠️ فشل جلب الشموع - TV و Binance كلهم ما يردو {datetime.now().strftime('%I:%M %p')}")
+        raise Exception("كل المصادر طاحت")
+    c1h=get_candles("1h",100); c4h=get_candles("4h",100)
+    if not c1h: c1h=c5
+    if not c4h: c4h=c5
+
     gold_price=get_gold_price()
     if not gold_price: gold_price = c5[-1]['c']
-    price=gold_price; now=datetime.now()
-    trade=load("trade.json"); last_weak=load("last_weak.json") or {"time":0}
+    price=gold_price; now=datetime.now(); trade=load("trade.json")
     rsi5=rsi(c5,14); ema200_4h=ema(c4h,200); atr5=atr(c5,14)
     fvg_bull = c5[-2]['l'] > c5[-4]['h']; fvg_bear = c5[-2]['h'] < c5[-4]['l']
     last_h=max([c['h'] for c in c5[-11:-1]]); last_l=min([c['l'] for c in c5[-11:-1]])
@@ -161,6 +158,7 @@ try:
     if liq_bear: sell_score+=1
     if ob_bull: buy_score+=1
     if ob_bear: sell_score+=1
+
     if trade:
         entry,typ,sl,tp=trade['entry'],trade['type'],trade['sl'],trade['tp2']
         diff=(price-entry) if typ=="BUY" else (entry-price); pips=diff*10
@@ -169,23 +167,22 @@ try:
         elif (typ=="BUY" and price>=tp) or (typ=="SELL" and price<=tp):
             msg=f"🏆 TP {typ} +{pips:.1f} 🔥 | {now.strftime('%I:%M %p')} | TV {price:.1f}$"; os.remove("trade.json")
         else:
-            msg=f"🔄 {typ} {pips:+.1f} | {now.strftime('%I:%M %p')} | TV {price:.1f}$ | OB {ob_bull_p if typ=='BUY' else ob_bear_p}"
+            msg=f"🔄 {typ} {pips:+.1f} | {now.strftime('%I:%M %p')} | TV {price:.1f}$"
     else:
         if buy_score>=4:
             sl=round(price - atr5*1.2,2); tp=round(price + atr5*2.5,2); entry=round(price,2)
-            save("trade.json",{"type":"BUY","entry":entry,"sl":sl,"tp2":tp}); save("last_weak.json",{"time":time.time()})
-            msg=f"💎 TV BUY قوي 88% | {price:.1f}$ TradingView\n⏰ {now.strftime('%I:%M %p')} | OANDA:XAUUSD مباشر\n📊 RSI {rsi5:.0f} | Buy {buy_score}/6 | OB {'نعم '+str(ob_bull_p)+'$' if ob_bull else 'لا'}\n🎯 دخول {entry}$ | SL {sl}$ | TP {tp}$"
+            save("trade.json",{"type":"BUY","entry":entry,"sl":sl,"tp2":tp})
+            msg=f"💎 TV BUY {price:.1f}$ | {now.strftime('%I:%M %p')} | RSI {rsi5:.0f} | Buy {buy_score}/6"
         elif sell_score>=4:
             sl=round(price + atr5*1.2,2); tp=round(price - atr5*2.5,2); entry=round(price,2)
-            save("trade.json",{"type":"SELL","entry":entry,"sl":sl,"tp2":tp}); save("last_weak.json",{"time":time.time()})
-            msg=f"💎 TV SELL قوي 88% | {price:.1f}$ TradingView\n⏰ {now.strftime('%I:%M %p')} | OANDA:XAUUSD | OB {ob_bear_p}$"
+            save("trade.json",{"type":"SELL","entry":entry,"sl":sl,"tp2":tp})
+            msg=f"💎 TV SELL {price:.1f}$ | {now.strftime('%I:%M %p')} | RSI {rsi5:.0f}"
         else:
-            save("last_weak.json",{"time":time.time()})
-            msg=f"⏳ تحليلي TV {price:.1f}$ | {now.strftime('%I:%M %p')}\nRSI {rsi5:.0f} | Buy {buy_score}/6 Sell {sell_score}/6\nOB {'صاعد '+str(ob_bull_p)+'$' if ob_bull else 'هابط '+str(ob_bear_p)+'$' if ob_bear else 'لا يوجد'} | FVG {'نعم' if fvg_bull or fvg_bear else 'لا'}\n🧠 TradingView مباشر - أنتظر OB حقيقي"
-    send_tg(msg); print(msg)
+            msg=f"⏳ TV {price:.1f}$ | {now.strftime('%I:%M %p')} | RSI {rsi5:.0f} | Buy {buy_score}/6 Sell {sell_score}/6 | OB {'صاعد' if ob_bull else 'هابط' if ob_bear else 'لا يوجد'}"
+
+    send_tg(msg); print(f"Final msg: {msg}")
+
 except Exception as e:
-    err_msg=f"⚠️ خطأ V19 TV: {str(e)[:150]} | {datetime.now().strftime('%I:%M %p')}"
+    err_msg=f"⚠️ خطأ V19.2: {str(e)[:200]} | {datetime.now().strftime('%I:%M %p')}"
     print(err_msg)
-    try:
-        if "كل المصادر" in str(e): send_tg(err_msg)
-    except: pass
+    send_tg(err_msg)
