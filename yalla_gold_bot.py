@@ -1,4 +1,4 @@
-# V21 Golden Fusion Pro V6 - تداول حقيقي
+# V21.1 FIXED - ما يسكتس ابدا
 import requests, json, os, time, sys
 from datetime import datetime
 
@@ -7,8 +7,10 @@ CHANNEL = "-1003997576330"
 
 def send_tg(text):
     try:
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id":CHANNEL,"text":text}, timeout=15)
-    except: pass
+        r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id":CHANNEL,"text":text}, timeout=15)
+        print(f"TG sent: {r.status_code}")
+    except Exception as e:
+        print(f"TG fail: {e}")
 
 def get_tv_price():
     try:
@@ -27,15 +29,17 @@ def get_tv_candles(interval_tv, limit=100):
         from_ts = to_ts - (limit * mins * 60) - 3600
         url = f"https://api.tradingview.com/tv/udf/1/history?symbol=OANDA:XAUUSD&resolution={resolution}&from={from_ts}&to={to_ts}"
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
-        if r.get('s') == 'ok' and 'c' in r:
+        if r.get('s') == 'ok' and 'c' in r and len(r['c']) > 5:
             return [{"o": float(r['o'][i]),"h": float(r['h'][i]),"l": float(r['l'][i]),"c": float(r['c'][i]),"v": 100} for i in range(len(r['c']))][-limit:]
-    except: pass
+    except Exception as e:
+        print(f"TV {interval_tv} fail: {e}")
     return None
 
 def get_binance_candles(interval, limit=100):
-    for base in ["https://api.binance.com", "https://data-api.binance.vision"]:
+    for base in ["https://api.binance.com", "https://data-api.binance.vision", "https://api1.binance.com"]:
         try:
-            data = requests.get(f"{base}/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}", timeout=10).json()
+            url = f"{base}/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}"
+            data = requests.get(url, timeout=10).json()
             if isinstance(data, list) and len(data) > 10:
                 return [{"o":float(c[1]),"h":float(c[2]),"l":float(c[3]),"c":float(c[4]),"v":float(c[5])} for c in data]
         except: continue
@@ -43,8 +47,13 @@ def get_binance_candles(interval, limit=100):
 
 def get_candles(interval, limit=100):
     c = get_tv_candles(interval, limit)
-    if c: return c
-    return get_binance_candles(interval, limit)
+    if c:
+        print(f"{interval} from TV: {len(c)}")
+        return c
+    c2 = get_binance_candles(interval, limit)
+    if c2:
+        print(f"{interval} from Binance: {len(c2)}")
+    return c2
 
 def ema_series(closes, period):
     k = 2/(period+1)
@@ -66,8 +75,7 @@ def rsi_last(candles, p=14):
         gains.append(max(d,0)); losses.append(max(-d,0))
     ag=sum(gains[-p:])/p; al=sum(losses[-p:])/p
     if al==0: return 100
-    rs=ag/al
-    return 100-(100/(1+rs))
+    return 100-(100/(1+ag/al))
 
 def macd_last(candles):
     closes=[c['c'] for c in candles]
@@ -76,11 +84,7 @@ def macd_last(candles):
     ema26 = ema_series(closes,26)
     macd_line = [a-b for a,b in zip(ema12, ema26)]
     signal_line = ema_series(macd_line, 9)
-    last_macd = macd_line[-1]
-    last_signal = signal_line[-1]
-    bullish = last_macd > last_signal and last_macd > 0
-    bearish = last_macd < last_signal and last_macd < 0
-    return last_macd, last_signal, bullish, bearish
+    return macd_line[-1], signal_line[-1], macd_line[-1] > signal_line[-1] and macd_line[-1] > 0, macd_line[-1] < signal_line[-1] and macd_line[-1] < 0
 
 def atr_last(candles, p=14):
     trs=[]
@@ -102,9 +106,19 @@ def save(f,d):
     with open(f,'w',encoding='utf-8') as x: json.dump(d,x)
 
 try:
-    c5=get_candles("5m",100); c15=get_candles("15m",100); c1h=get_candles("1h",100); c4h=get_candles("4h",100)
-    if not c5 or not c15 or not c1h or not c4h:
+    c5=get_candles("5m",100)
+    c15=get_candles("15m",100)
+    c1h=get_candles("1h",100)
+    c4h=get_candles("4h",100)
+
+    if not c5:
+        send_tg(f"⚠️ فشل جلب البيانات 5m - TV+Binance محظورين مؤقتا {datetime.now().strftime('%I:%M %p')}\nسيحاول بعد 5 دقائق")
+        print("No candles 5m")
         sys.exit(0)
+
+    if not c15: c15=c5
+    if not c1h: c1h=c5
+    if not c4h: c4h=c5
 
     price = get_tv_price() or c5[-1]['c']
     now = datetime.now()
@@ -219,4 +233,9 @@ try:
 
 except Exception as e:
     print(f"Error: {e}")
+    try:
+        import traceback
+        traceback.print_exc()
+        send_tg(f"⚠️ خطأ: {str(e)[:100]} {datetime.now().strftime('%H:%M')}")
+    except: pass
     sys.exit(0)
